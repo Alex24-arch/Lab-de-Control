@@ -1,51 +1,15 @@
+// =============================================================================
+// Archivo      : script.m
+// Autor        : Alex24-arch
+// Fecha        : 13 de agosto de 2026
+// Curso        : EL-5409 Laboratorio de Control Automático (TEC, VIII semestre)
+// Descripción  : Codigo proyecto individual 1.
+// Asistencia IA: Estructura y revisión con Claude (Anthropic).
+// =============================================================================
+
 function proyecto1()
 % PROYECTO1  Consola interactiva para la simulacion parametrica de una
 %            planta de primer orden (motor de CD).
-%
-% -----------------------------------------------------------------------
-% TEORIA DE FONDO
-% -----------------------------------------------------------------------
-% Un motor de CD controlado por armadura, despreciando la inductancia La,
-% se comporta como un sistema de PRIMER ORDEN cuya funcion de
-% transferencia (velocidad angular / voltaje de armadura) es:
-%
-%       G(s) = KM / (tau*s + 1)
-%
-% donde los dos coeficientes se obtienen de los parametros fisicos:
-%
-%       KM  = Kt / (Ra*b + Kt*Kb)     <- ganancia de CD [rad/s por volt]
-%       tau = Ra*J / (Ra*b + Kt*Kb)   <- constante de tiempo [s]
-%
-% El denominador comun, den = Ra*b + Kt*Kb, representa el amortiguamiento
-% total del motor: la friccion mecanica (Ra*b) mas el frenado electrico
-% que produce la fuerza contraelectromotriz (Kt*Kb). Si den fuera cero el
-% motor no tendria nada que lo frene y el modelo dejaria de ser valido
-% (seria un integrador puro), por eso el codigo lo valida explicitamente.
-%
-% Ante una ENTRADA ESCALON UNITARIO la respuesta analitica es:
-%
-%       y(t) = KM * (1 - exp(-t/tau))
-%
-% De esa expresion salen todos los valores caracteristicos que se grafican:
-%
-%   - Valor final esperado:  y(inf) = KM       (en la practica se evalua en
-%                                               t = 5*tau, donde y = 99.3 %)
-%   - y(tau) = 0.632*KM      -> definicion misma de la constante de tiempo
-%   - Tiempo de asentamiento al 2 %:  ts = 4*tau
-%        porque exp(-ts/tau) = 0.02  =>  ts = tau*ln(50) ~= 3.912*tau,
-%        que por convencion se redondea a 4*tau
-%   - Error de estado estacionario:  ess = referencia - y(inf) = 1 - KM
-%        (la referencia es 1 porque la entrada es el escalon UNITARIO)
-%
-% -----------------------------------------------------------------------
-% Uso:  >> proyecto1
-%
-% Compatible con MATLAB y GNU Octave.
-% No requiere Control System Toolbox: la respuesta se calcula de forma
-% analitica con la exponencial, no con la funcion step().
-%
-% EL-5409 Laboratorio de Control Automatico - Proyecto individual 1
-% -----------------------------------------------------------------------
 
     % Estructura que guarda los 5 parametros fisicos.
     % Se inicializan en NaN ("Not a Number") para marcar que aun no tienen
