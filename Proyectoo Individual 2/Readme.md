@@ -2,7 +2,7 @@
 
 Análisis de estabilidad de un sistema realimentado: **tabla de Routh-Hurwitz** y **lugar de las raíces**, mediante una consola interactiva en MATLAB/Octave.
 
-**Estudiante:** _(nombre)_ — **Carné:** _(carné)_
+**Estudiante:** Santos Alexander López Valles **Carné:** 2023057479
 
 ## Descripción
 
