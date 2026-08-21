@@ -1,63 +1,13 @@
+// =============================================================================
+// Archivo      : script.m
+// Autor        : Alex24-arch
+// Fecha        : 13 de agosto de 2026
+// Curso        : EL-5409 Laboratorio de Control Automático (TEC, VIII semestre)
+// Descripción  : Codigo proyecto individual 1.
+// Asistencia IA: Estructura y revisión con Claude (Anthropic).
+// =============================================================================
+
 function proyecto2()
-% PROYECTO2  Consola interactiva para el analisis de estabilidad de un
-%            sistema de control por realimentacion unitaria.
-%
-% -----------------------------------------------------------------------
-% TEORIA DE FONDO
-% -----------------------------------------------------------------------
-% Se parte de una planta en LAZO ABIERTO especificada por sus ceros y
-% polos:
-%
-%       G(s) = Kg * (s-z1)(s-z2)...(s-zm) / [(s-p1)(s-p2)...(s-pn)]
-%              = Kg * num(s) / den(s)
-%
-% Al cerrar el lazo con realimentacion unitaria negativa y una ganancia
-% ajustable K, la funcion de transferencia de lazo cerrado es:
-%
-%       T(s) = K*G(s) / (1 + K*G(s))
-%
-% Los POLOS DE LAZO CERRADO son las raices del denominador, es decir, las
-% soluciones de la ECUACION CARACTERISTICA:
-%
-%       1 + K*G(s) = 0     <=>     den(s) + K*Kg*num(s) = 0
-%
-% Esa ultima forma polinomial es la que usa todo el programa: se suma el
-% polinomio del denominador con K veces el del numerador.
-%
-% CRITERIO DE ESTABILIDAD:
-% El sistema es estable si y solo si TODOS los polos de lazo cerrado
-% tienen parte real negativa (estan en el semiplano izquierdo, SPI).
-%
-% Este programa lo verifica por DOS caminos independientes:
-%
-%   1. ROUTH-HURWITZ: metodo algebraico que, sin calcular las raices,
-%      determina cuantas estan en el semiplano derecho (SPD) contando los
-%      CAMBIOS DE SIGNO en la primera columna de la tabla.
-%
-%   2. RAICES NUMERICAS: se calculan directamente con roots() y se mira
-%      su parte real.
-%
-% Ambos deben coincidir. Que coincidan es la mejor verificacion de que la
-% tabla esta bien construida.
-%
-% LUGAR DE LAS RAICES (ROOT LOCUS):
-% Es el lugar geometrico que describen los polos de lazo cerrado en el
-% plano s cuando K varia de 0 a infinito. Propiedades que se observan:
-%   - En K = 0 las ramas ARRANCAN en los polos de lazo abierto.
-%   - Cuando K -> infinito las ramas TERMINAN en los ceros de lazo
-%     abierto; las (n-m) ramas sobrantes se van al infinito siguiendo
-%     asintotas.
-%   - Donde una rama CRUZA el eje imaginario esta el K critico: el valor
-%     de ganancia en que el sistema pasa de estable a inestable. Ese
-%     mismo valor debe salir de la tabla de Routh.
-%
-% -----------------------------------------------------------------------
-% Uso:  >> proyecto2
-%
-% Compatible con MATLAB y GNU Octave.
-%
-% EL-5409 Laboratorio de Control Automatico - Proyecto individual 2
-% -----------------------------------------------------------------------
 
     % Estado del sistema.
     %   z  : vector de ceros de lazo abierto (puede ser vacio)
