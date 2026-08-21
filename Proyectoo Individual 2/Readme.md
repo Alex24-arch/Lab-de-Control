@@ -12,16 +12,13 @@ A partir de los ceros y polos de la planta en lazo abierto `G(s) = Kg·num(s)/de
 
 y determina la estabilidad del sistema por dos métodos independientes que se contrastan entre sí: la tabla de Routh-Hurwitz y el cálculo directo de las raíces.
 
-## Requisitos
-
-MATLAB o GNU Octave. **No requiere Control System Toolbox**: no se usan `tf()`, `rlocus()` ni `step()`, únicamente `poly()` y `roots()`, que son funciones básicas del lenguaje.
 
 ## Archivos
 
 | Archivo | Contenido |
 |---|---|
 | `proyecto2.m` | Script principal (consola interactiva) |
-| `CASOS2.md` | Teoría del método y explicación de los casos de prueba |
+| `readme.md` | Teoría del método y explicación de los casos de prueba |
 
 ## Uso
 
