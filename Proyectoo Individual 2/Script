@@ -1,1 +1,976 @@
+function proyecto2()
+% PROYECTO2  Consola interactiva para el analisis de estabilidad de un
+%            sistema de control por realimentacion unitaria.
+%
+% -----------------------------------------------------------------------
+% TEORIA DE FONDO
+% -----------------------------------------------------------------------
+% Se parte de una planta en LAZO ABIERTO especificada por sus ceros y
+% polos:
+%
+%       G(s) = Kg * (s-z1)(s-z2)...(s-zm) / [(s-p1)(s-p2)...(s-pn)]
+%              = Kg * num(s) / den(s)
+%
+% Al cerrar el lazo con realimentacion unitaria negativa y una ganancia
+% ajustable K, la funcion de transferencia de lazo cerrado es:
+%
+%       T(s) = K*G(s) / (1 + K*G(s))
+%
+% Los POLOS DE LAZO CERRADO son las raices del denominador, es decir, las
+% soluciones de la ECUACION CARACTERISTICA:
+%
+%       1 + K*G(s) = 0     <=>     den(s) + K*Kg*num(s) = 0
+%
+% Esa ultima forma polinomial es la que usa todo el programa: se suma el
+% polinomio del denominador con K veces el del numerador.
+%
+% CRITERIO DE ESTABILIDAD:
+% El sistema es estable si y solo si TODOS los polos de lazo cerrado
+% tienen parte real negativa (estan en el semiplano izquierdo, SPI).
+%
+% Este programa lo verifica por DOS caminos independientes:
+%
+%   1. ROUTH-HURWITZ: metodo algebraico que, sin calcular las raices,
+%      determina cuantas estan en el semiplano derecho (SPD) contando los
+%      CAMBIOS DE SIGNO en la primera columna de la tabla.
+%
+%   2. RAICES NUMERICAS: se calculan directamente con roots() y se mira
+%      su parte real.
+%
+% Ambos deben coincidir. Que coincidan es la mejor verificacion de que la
+% tabla esta bien construida.
+%
+% LUGAR DE LAS RAICES (ROOT LOCUS):
+% Es el lugar geometrico que describen los polos de lazo cerrado en el
+% plano s cuando K varia de 0 a infinito. Propiedades que se observan:
+%   - En K = 0 las ramas ARRANCAN en los polos de lazo abierto.
+%   - Cuando K -> infinito las ramas TERMINAN en los ceros de lazo
+%     abierto; las (n-m) ramas sobrantes se van al infinito siguiendo
+%     asintotas.
+%   - Donde una rama CRUZA el eje imaginario esta el K critico: el valor
+%     de ganancia en que el sistema pasa de estable a inestable. Ese
+%     mismo valor debe salir de la tabla de Routh.
+%
+% -----------------------------------------------------------------------
+% Uso:  >> proyecto2
+%
+% Compatible con MATLAB y GNU Octave.
+%
+% EL-5409 Laboratorio de Control Automatico - Proyecto individual 2
+% -----------------------------------------------------------------------
 
+    % Estado del sistema.
+    %   z  : vector de ceros de lazo abierto (puede ser vacio)
+    %   p  : vector de polos de lazo abierto
+    %   Kg : ganancia propia de la planta
+    %   K  : ganancia ajustable del lazo, para el analisis puntual
+    S = struct('z', [], 'p', [], 'Kg', 1, 'K', 1, 'definido', false);
+
+    % Casos de prueba. Columnas: {etiqueta, que_demuestra, ceros, polos, Kg}
+    EJEMPLOS = { ...
+      'A - Clasico con integrador', ...
+      'G = 1/[s(s+1)(s+2)]. Estable solo si 0 < K < 6. Cruce en s = +-j1.414', ...
+      [], [0, -1, -2], 1 ; ...
+      ...
+      'B - Tres polos reales', ...
+      'G = 1/[(s+1)(s+2)(s+3)]. Estable si K < 60. Lazo abierto ya estable', ...
+      [], [-1, -2, -3], 1 ; ...
+      ...
+      'C - Con un cero (siempre estable)', ...
+      'G = (s+2)/[s(s+1)]. Estable para todo K > 0: el cero atrae las ramas', ...
+      [-2], [0, -1], 1 ; ...
+      ...
+      'D - Polos complejos', ...
+      'G = 1/[s(s^2+2s+2)]. Estable si 0 < K < 4. Ramas curvas hacia el SPD', ...
+      [], [0, -1+1i, -1-1i], 1 ; ...
+      ...
+      'E - Inestable para todo K', ...
+      'G = 1/[s(s-1)]. Polo en el SPD. Ningun K estabiliza: coef. negativo', ...
+      [], [0, 1], 1 };
+
+    banner();
+
+    while true
+        mostrarMenu(S);
+        op = strtrim(leerTexto('Seleccione una opcion: '));
+
+        switch op
+            case '1'
+                S = ingresarCeros(S);
+            case '2'
+                S = ingresarPolos(S);
+            case '3'
+                S = ingresarGanancias(S);
+            case '4'
+                S = cargarEjemplo(S, EJEMPLOS);
+            case '5'
+                mostrarSistema(S);
+            case '6'
+                if verificar(S), tablaRouth(S); end
+            case '7'
+                if verificar(S), rangoK(S); end
+            case '8'
+                if verificar(S), rootLocus(S); end
+            case '9'
+                if verificar(S)
+                    mostrarSistema(S);
+                    tablaRouth(S);
+                    rangoK(S);
+                    rootLocus(S);
+                    conclusion(S);
+                end
+            case {'0', 'q', 'Q'}
+                fprintf('\nFin del programa.\n\n');
+                return;
+            otherwise
+                fprintf('\n  >> Opcion no valida.\n');
+        end
+    end
+end
+
+% ===================================================================
+% INTERFAZ
+% ===================================================================
+function banner()
+    fprintf('\n');
+    fprintf('===================================================================\n');
+    fprintf('  EL-5409 Laboratorio de Control Automatico - Proyecto 2\n');
+    fprintf('  Routh-Hurwitz y Lugar de las Raices\n');
+    fprintf('  Ecuacion caracteristica:  1 + K*G(s) = 0\n');
+    fprintf('===================================================================\n');
+end
+
+function mostrarMenu(S)
+    fprintf('\n-------------------------------------------------------------------\n');
+    if isempty(S.p)
+        fprintf('  MENU PRINCIPAL   [sin polos definidos]\n');
+    else
+        fprintf('  MENU PRINCIPAL   [%d polos, %d ceros, Kg=%g, K=%g]\n', ...
+                numel(S.p), numel(S.z), S.Kg, S.K);
+    end
+    fprintf('-------------------------------------------------------------------\n');
+    fprintf('   1) Ingresar ceros de lazo abierto\n');
+    fprintf('   2) Ingresar polos de lazo abierto\n');
+    fprintf('   3) Ingresar ganancias (Kg de la planta, K del lazo)\n');
+    fprintf('   4) Cargar un caso de prueba\n');
+    fprintf('   5) Ver G(s) y la ecuacion caracteristica\n');
+    fprintf('   6) Tabla de Routh-Hurwitz (para el K actual)\n');
+    fprintf('   7) Rango de K que estabiliza el sistema\n');
+    fprintf('   8) Lugar de las raices (root locus)\n');
+    fprintf('   9) ANALISIS COMPLETO (5+6+7+8 y conclusion)\n');
+    fprintf('   0) Salir\n');
+    fprintf('-------------------------------------------------------------------\n');
+    if ~isempty(S.p)
+        fprintf('   polos: %s\n', vec2str(S.p));
+        if isempty(S.z)
+            fprintf('   ceros: (ninguno)\n');
+        else
+            fprintf('   ceros: %s\n', vec2str(S.z));
+        end
+    end
+end
+
+function ok = verificar(S)
+% El sistema necesita al menos los polos para tener denominador.
+    ok = ~isempty(S.p);
+    if ~ok
+        fprintf('\n  >> Primero debe definir los polos (opcion 2 o 4).\n');
+    end
+end
+
+% ===================================================================
+% ENTRADA DE DATOS
+% ===================================================================
+function S = ingresarCeros(S)
+    fprintf('\n--- Ceros de lazo abierto ---\n');
+    fprintf('  Formato: separados por comas o espacios. Complejos con i.\n');
+    fprintf('  Ejemplos:  -2        |  -1, -3      |  -1+2i, -1-2i\n');
+    fprintf('  Deje vacio y presione ENTER si la planta no tiene ceros.\n');
+    S.z = pedirVector('  Ceros: ', true);
+end
+
+function S = ingresarPolos(S)
+    fprintf('\n--- Polos de lazo abierto ---\n');
+    fprintf('  Formato: separados por comas o espacios. Complejos con i.\n');
+    fprintf('  Ejemplos:  0, -1, -2   |  0, -1+1i, -1-1i\n');
+    while true
+        v = pedirVector('  Polos: ', false);
+        if isempty(v)
+            fprintf('    >> Debe ingresar al menos un polo.\n');
+            continue;
+        end
+        S.p = v;
+        return;
+    end
+end
+
+function S = ingresarGanancias(S)
+    fprintf('\n--- Ganancias ---\n');
+    S.Kg = pedirEscalar(sprintf('  Kg (ganancia propia de la planta) [%g]: ', S.Kg), S.Kg, false);
+    S.K  = pedirEscalar(sprintf('  K  (ganancia del lazo a analizar)  [%g]: ', S.K),  S.K,  false);
+end
+
+function v = pedirVector(msg, permitirVacio)
+% Lee un vector de numeros (posiblemente complejos) desde texto.
+% Se valida que el resultado sea numerico y finito; si no, se repregunta.
+    while true
+        s = strtrim(leerTexto(msg));
+
+        if isempty(s)
+            if permitirVacio
+                v = [];
+                return;
+            else
+                fprintf('    >> Entrada vacia no permitida aqui.\n');
+                continue;
+            end
+        end
+
+        % Se envuelve en corchetes y se evalua: acepta comas, espacios y
+        % expresiones como -1+2i o 1/2. str2num devuelve [] si falla.
+        s = strrep(s, '[', ''); s = strrep(s, ']', '');
+        v = str2num(['[' s ']']);   %#ok<ST2NM>
+
+        if isempty(v) || ~isnumeric(v)
+            fprintf('    >> No se pudo interpretar como lista de numeros.\n');
+            continue;
+        end
+        if any(~isfinite(v))
+            fprintf('    >> Hay valores infinitos o NaN.\n');
+            continue;
+        end
+        v = v(:).';   % vector fila
+        return;
+    end
+end
+
+function x = pedirEscalar(msg, actual, permitirCero)
+% Lee un escalar real. ENTER conserva el valor actual.
+    while true
+        s = strtrim(leerTexto(msg));
+        if isempty(s)
+            x = actual;
+            return;
+        end
+        x = str2double(s);
+        if isnan(x) || ~isreal(x) || ~isfinite(x)
+            fprintf('    >> Debe ser un numero real finito.\n');
+            continue;
+        end
+        if ~permitirCero && x == 0
+            fprintf('    >> No puede ser cero.\n');
+            continue;
+        end
+        return;
+    end
+end
+
+function S = cargarEjemplo(S, EJEMPLOS)
+    n = size(EJEMPLOS,1);
+    fprintf('\n--- Casos de prueba ---\n');
+    for k = 1:n
+        fprintf('   %d) %s\n', k, EJEMPLOS{k,1});
+        fprintf('      %s\n', EJEMPLOS{k,2});
+    end
+    fprintf('   0) Cancelar\n');
+
+    s = strtrim(leerTexto('Opcion: '));
+    k = str2double(s);
+    if isnan(k) || k < 1 || k > n || k ~= fix(k)
+        fprintf('  >> Cancelado.\n');
+        return;
+    end
+
+    S.z  = EJEMPLOS{k,3};
+    S.p  = EJEMPLOS{k,4};
+    S.Kg = EJEMPLOS{k,5};
+    S.K  = 1;
+    fprintf('  >> Caso "%s" cargado.\n', EJEMPLOS{k,1});
+end
+
+function s = leerTexto(msg)
+    s = input(msg, 's');
+    if ~ischar(s)
+        s = '';
+    end
+end
+
+% ===================================================================
+% CONSTRUCCION DE POLINOMIOS
+% ===================================================================
+function [num, den, ok, msg] = polinomios(S)
+% Construye los polinomios num(s) y den(s) de G(s) = Kg*num/den a partir
+% de los ceros y polos.
+%
+% poly(r) devuelve los coeficientes del polinomio monico cuyas raices
+% son r. Si las raices complejas vienen en pares conjugados, los
+% coeficientes salen reales (con un residuo imaginario numerico
+% despreciable que aqui se limpia).
+    ok = true; msg = '';
+
+    num = S.Kg * poly(S.z);   % si S.z es vacio, poly([]) = 1
+    den = poly(S.p);
+
+    % Verificacion de coeficientes reales: si un polo o cero complejo
+    % se ingreso sin su conjugado, el polinomio queda complejo y el
+    % analisis de Routh (que asume coeficientes reales) no aplica.
+    tolNum = 1e-9 * max(1, max(abs(num)));
+    tolDen = 1e-9 * max(1, max(abs(den)));
+    if max(abs(imag(num))) > tolNum || max(abs(imag(den))) > tolDen
+        ok = false;
+        msg = ['Los coeficientes resultan complejos. Las raices complejas ' ...
+               'deben ingresarse en pares conjugados (ej: -1+2i y -1-2i).'];
+        return;
+    end
+
+    num = real(num);
+    den = real(den);
+end
+
+function [c, ok, msg] = ecuacionCaracteristica(S, K)
+% Coeficientes de la ecuacion caracteristica  den(s) + K*num(s) = 0.
+% Se alinean ambos polinomios por la derecha (potencias menores) antes
+% de sumarlos, porque num suele tener menor grado que den.
+    c = []; 
+    [num, den, ok, msg] = polinomios(S);
+    if ~ok, return; end
+
+    numPad = [zeros(1, numel(den)-numel(num)), num];
+    c = den + K*numPad;
+
+    % Si el coeficiente principal quedara en cero el grado bajaria;
+    % se eliminan ceros iniciales para no romper el algoritmo de Routh.
+    idx = find(abs(c) > 1e-12, 1, 'first');
+    if isempty(idx)
+        ok = false; msg = 'La ecuacion caracteristica es identicamente cero.';
+        return;
+    end
+    c = c(idx:end);
+end
+
+% ===================================================================
+% VISUALIZACION DEL SISTEMA
+% ===================================================================
+function mostrarSistema(S)
+    [num, den, ok, msg] = polinomios(S);
+    if ~ok
+        fprintf('\n  >> %s\n', msg);
+        return;
+    end
+
+    fprintf('\n===================================================================\n');
+    fprintf('  SISTEMA EN LAZO ABIERTO\n');
+    fprintf('===================================================================\n');
+    if isempty(S.z)
+        fprintf('  Ceros (m=0): ninguno\n');
+    else
+        fprintf('  Ceros (m=%d): %s\n', numel(S.z), vec2str(S.z));
+    end
+    fprintf('  Polos (n=%d): %s\n', numel(S.p), vec2str(S.p));
+    fprintf('  Ganancia de planta Kg = %g\n\n', S.Kg);
+
+    fprintf('  G(s) = num(s)/den(s)\n');
+    fprintf('    num(s) = %s\n', poli2str(num));
+    fprintf('    den(s) = %s\n\n', poli2str(den));
+
+    % Estabilidad del lazo ABIERTO (informativa): si ya hay polos en el
+    % SPD, el sistema sin realimentar es inestable de entrada.
+    nSpdAbierto = sum(real(S.p) > 1e-12);
+    if nSpdAbierto > 0
+        fprintf('  Nota: la planta en LAZO ABIERTO ya tiene %d polo(s) en el SPD.\n', nSpdAbierto);
+    end
+    nInt = sum(abs(S.p) < 1e-12);
+    if nInt > 0
+        fprintf('  Nota: la planta tiene %d integrador(es) (polo en el origen).\n', nInt);
+    end
+
+    [c, ok2, msg2] = ecuacionCaracteristica(S, S.K);
+    if ~ok2
+        fprintf('\n  >> %s\n', msg2);
+        return;
+    end
+    fprintf('\n  ECUACION CARACTERISTICA:  1 + K*G(s) = 0\n');
+    fprintf('  es decir:  den(s) + K*num(s) = 0\n');
+    fprintf('  con K = %g:\n', S.K);
+    fprintf('    %s = 0\n', poli2str(c));
+    fprintf('  Grado = %d  ->  el lazo cerrado tiene %d polos\n', numel(c)-1, numel(c)-1);
+    fprintf('===================================================================\n');
+end
+
+% ===================================================================
+% TABLA DE ROUTH-HURWITZ
+% ===================================================================
+function tablaRouth(S)
+    [c, ok, msg] = ecuacionCaracteristica(S, S.K);
+    if ~ok
+        fprintf('\n  >> %s\n', msg);
+        return;
+    end
+
+    [T, notas, potencias] = construirRouth(c);
+
+    fprintf('\n===================================================================\n');
+    fprintf('  TABLA DE ROUTH-HURWITZ   (K = %g)\n', S.K);
+    fprintf('===================================================================\n');
+    fprintf('  Ecuacion caracteristica:\n    %s = 0\n\n', poli2str(c));
+
+    % --- Condicion necesaria -------------------------------------
+    % Para que TODAS las raices esten en el SPI, todos los coeficientes
+    % deben existir y tener el mismo signo. Si no se cumple, el sistema
+    % es inestable sin necesidad de construir la tabla.
+    signos = sign(c(abs(c) > 1e-12));
+    if any(signos ~= signos(1))
+        fprintf('  CONDICION NECESARIA: NO se cumple.\n');
+        fprintf('  Hay coeficientes de distinto signo, asi que el sistema\n');
+        fprintf('  ya es inestable sin importar el resto del analisis.\n\n');
+    elseif any(abs(c) <= 1e-12)
+        fprintf('  CONDICION NECESARIA: hay coeficientes nulos (posible\n');
+        fprintf('  inestabilidad o raices sobre el eje imaginario).\n\n');
+    else
+        fprintf('  CONDICION NECESARIA: se cumple (todos los coeficientes\n');
+        fprintf('  presentes y del mismo signo). Se continua con la tabla.\n\n');
+    end
+
+    % --- Impresion de la tabla -----------------------------------
+    anchoCol = 14;
+    fprintf('  %-6s', 's^k');
+    for j = 1:size(T,2)
+        fprintf('%*s', anchoCol, sprintf('col %d', j));
+    end
+    fprintf('\n  %s\n', repmat('-', 1, 6 + anchoCol*size(T,2)));
+
+    for i = 1:size(T,1)
+        fprintf('  s^%-4d', potencias(i));
+        for j = 1:size(T,2)
+            fprintf('%*s', anchoCol, sprintf('%.6g', T(i,j)));
+        end
+        fprintf('\n');
+    end
+
+    if ~isempty(notas)
+        fprintf('\n  Casos especiales encontrados:\n');
+        for k = 1:numel(notas)
+            fprintf('   - %s\n', notas{k});
+        end
+    end
+
+    % --- Conteo de cambios de signo ------------------------------
+    % Teorema de Routh: el numero de raices en el semiplano DERECHO es
+    % igual al numero de cambios de signo en la primera columna.
+    col1 = T(:,1);
+    val  = col1(abs(col1) > 1e-300);
+    nCambios = sum(diff(sign(val)) ~= 0);
+
+    fprintf('\n  Primera columna: %s\n', vec2str(col1.'));
+    fprintf('  Cambios de signo: %d\n', nCambios);
+    fprintf('  => %d raiz(ces) en el semiplano DERECHO\n', nCambios);
+
+    % --- Verificacion independiente con roots() ------------------
+    r = roots(c);
+    nSpd = sum(real(r) >  1e-9);
+    nEje = sum(abs(real(r)) <= 1e-9);
+
+    fprintf('\n  VERIFICACION con roots():\n');
+    for k = 1:numel(r)
+        fprintf('    s%d = %s   (Re = %+.6g)\n', k, num2str(r(k)), real(r(k)));
+    end
+    fprintf('    Raices en el SPD: %d | sobre el eje imaginario: %d\n', nSpd, nEje);
+
+    if nSpd == nCambios
+        fprintf('    Coincide con la tabla de Routh. [OK]\n');
+    else
+        fprintf('    ATENCION: no coincide (revisar casos especiales).\n');
+    end
+
+    % --- Veredicto ------------------------------------------------
+    fprintf('\n  RESULTADO: ');
+    if nSpd > 0
+        fprintf('SISTEMA INESTABLE con K = %g\n', S.K);
+        fprintf('  Justificacion: hay %d polo(s) de lazo cerrado con parte\n', nSpd);
+        fprintf('  real positiva, lo que produce una respuesta que crece sin\n');
+        fprintf('  limite en el tiempo.\n');
+    elseif nEje > 0
+        fprintf('MARGINALMENTE ESTABLE con K = %g\n', S.K);
+        fprintf('  Justificacion: hay polos sobre el eje imaginario, lo que\n');
+        fprintf('  produce una oscilacion sostenida que ni crece ni decae.\n');
+    else
+        fprintf('SISTEMA ESTABLE con K = %g\n', S.K);
+        fprintf('  Justificacion: los %d polos de lazo cerrado tienen parte\n', numel(r));
+        fprintf('  real negativa, asi que la respuesta transitoria decae.\n');
+    end
+    fprintf('===================================================================\n');
+end
+
+function [T, notas, potencias] = construirRouth(c)
+% Construye la tabla de Routh para el polinomio de coeficientes c,
+% ordenados de la potencia mayor a la menor.
+%
+% ESTRUCTURA: si el polinomio es de grado n, la tabla tiene n+1 filas,
+% asociadas a las potencias s^n, s^(n-1), ..., s^0.
+%   Fila 1: coeficientes de indice impar  (a_n, a_{n-2}, ...)
+%   Fila 2: coeficientes de indice par    (a_{n-1}, a_{n-3}, ...)
+%   Fila i: se calcula como determinantes cruzados de las dos anteriores.
+%
+% CASOS ESPECIALES contemplados:
+%   (1) Primer elemento de una fila es cero pero la fila no es toda cero:
+%       se sustituye por un epsilon positivo pequeno para poder seguir.
+%   (2) Fila completa de ceros: indica raices simetricas respecto al
+%       origen (tipicamente un par sobre el eje imaginario). Se reemplaza
+%       por los coeficientes de la derivada del polinomio auxiliar
+%       formado con la fila anterior.
+
+    c = c(:).';
+    n = numel(c) - 1;               % grado
+    filas = n + 1;
+    cols  = ceil((n+1)/2);
+    potencias = n:-1:0;
+    notas = {};
+
+    % Se trabaja con una columna extra de ceros para no salirse del indice.
+    T = zeros(filas, cols+1);
+
+    imp = c(1:2:end);
+    par = c(2:2:end);
+    T(1, 1:numel(imp)) = imp;
+    if filas >= 2
+        T(2, 1:numel(par)) = par;
+    end
+
+    epsVal = 1e-6 * max(abs(c));    % epsilon relativo al tamano del problema
+
+    for i = 3:filas
+        % --- Caso especial (2): fila anterior toda cero ---
+        if all(abs(T(i-1,:)) < 1e-300)
+            pAux = potencias(i-2);          % potencia de s de la fila i-2
+            coefAux = T(i-2, :);
+            % Polinomio auxiliar: coefAux(k) multiplica a s^(pAux-2(k-1)).
+            % Su derivada baja cada potencia en 1 y multiplica por ella.
+            deriv = zeros(1, cols+1);
+            for k = 1:cols+1
+                expo = pAux - 2*(k-1);
+                if expo > 0
+                    deriv(k) = coefAux(k) * expo;
+                end
+            end
+            T(i-1,:) = deriv;
+            notas{end+1} = sprintf(['Fila s^%d completa de ceros: se uso la derivada del ' ...
+                                    'polinomio auxiliar. Indica raices simetricas respecto ' ...
+                                    'al origen (posible par sobre el eje imaginario).'], potencias(i-1)); %#ok<AGROW>
+        end
+
+        % --- Caso especial (1): primer elemento cero ---
+        if abs(T(i-1,1)) < 1e-300
+            T(i-1,1) = epsVal;
+            notas{end+1} = sprintf(['Primer elemento de la fila s^%d era cero: se sustituyo ' ...
+                                    'por epsilon = %g para continuar.'], potencias(i-1), epsVal); %#ok<AGROW>
+        end
+
+        % --- Calculo estandar de la fila ---
+        for j = 1:cols
+            a = T(i-2,1);  b = T(i-2,j+1);
+            cc = T(i-1,1); d = T(i-1,j+1);
+            T(i,j) = (cc*b - a*d) / cc;
+        end
+    end
+
+    T = T(:, 1:cols);   % se descarta la columna auxiliar
+end
+
+% ===================================================================
+% RANGO DE K QUE ESTABILIZA
+% ===================================================================
+function rangoK(S)
+% Determina numericamente para que valores de K > 0 el sistema es estable.
+%
+% METODO: se barre K y para cada valor se calcula la parte real maxima de
+% las raices de la ecuacion caracteristica. Donde esa cantidad cruza cero
+% esta un limite de estabilidad; el cruce se refina por biseccion.
+%
+% Se usa un barrido numerico en lugar de resolver la tabla de Routh de
+% forma simbolica para no depender del Symbolic Toolbox.
+
+    fprintf('\n===================================================================\n');
+    fprintf('  RANGO DE K QUE ESTABILIZA EL SISTEMA  (barrido numerico, K > 0)\n');
+    fprintf('===================================================================\n');
+
+    Kmax = 1e4;
+    Ks = [0, logspace(-4, log10(Kmax), 4000)];
+
+    est = false(size(Ks));
+    for i = 1:numel(Ks)
+        est(i) = esEstable(S, Ks(i));
+    end
+
+    if ~any(est)
+        fprintf('  No se encontro ningun K en (0, %g] que estabilice el sistema.\n', Kmax);
+        fprintf('  Justificacion: para todo K probado quedan polos de lazo\n');
+        fprintf('  cerrado con parte real positiva.\n');
+        fprintf('===================================================================\n');
+        return;
+    end
+    if all(est)
+        fprintf('  El sistema es estable para TODO K en (0, %g].\n', Kmax);
+        fprintf('  Las ramas del root locus nunca cruzan al semiplano derecho.\n');
+        fprintf('===================================================================\n');
+        return;
+    end
+
+    % Se localizan las transiciones estable <-> inestable y se refinan.
+    cambios = find(diff(est) ~= 0);
+    fprintf('  Limites de estabilidad encontrados:\n');
+    for k = 1:numel(cambios)
+        i = cambios(k);
+        Kcrit = bisecar(S, Ks(i), Ks(i+1));
+        if est(i)
+            fprintf('    K = %.6g  : pasa de ESTABLE a INESTABLE\n', Kcrit);
+        else
+            fprintf('    K = %.6g  : pasa de INESTABLE a ESTABLE\n', Kcrit);
+        end
+        % Frecuencia de cruce: parte imaginaria de las raices que estan
+        % sobre el eje imaginario en el K critico.
+        c = ecuacionCaracteristica(S, Kcrit);
+        r = roots(c);
+        sel = r(abs(real(r)) < 1e-3 & imag(r) > 0);
+        if ~isempty(sel)
+            fprintf('      cruce del eje imaginario en s = +-j%.6g\n', imag(sel(1)));
+            fprintf('      (frecuencia de oscilacion sostenida en ese K)\n');
+        end
+    end
+
+    % Resumen del intervalo estable
+    idx = find(est);
+    fprintf('\n  Intervalo estable aproximado: K en [%.6g, %.6g]\n', Ks(idx(1)), Ks(idx(end)));
+    fprintf('===================================================================\n');
+end
+
+function ok = esEstable(S, K)
+% Verdadero si todas las raices de la ec. caracteristica estan en el SPI.
+    [c, valido] = ecuacionCaracteristica(S, K);
+    if ~valido || numel(c) < 2
+        ok = false;
+        return;
+    end
+    ok = all(real(roots(c)) < -1e-9);
+end
+
+function Kc = bisecar(S, Ka, Kb_)
+% Refina por biseccion el K donde cambia la condicion de estabilidad.
+    ea = esEstable(S, Ka);
+    for it = 1:60
+        Km = 0.5*(Ka + Kb_);
+        if esEstable(S, Km) == ea
+            Ka = Km;
+        else
+            Kb_ = Km;
+        end
+    end
+    Kc = 0.5*(Ka + Kb_);
+end
+
+% ===================================================================
+% LUGAR DE LAS RAICES
+% ===================================================================
+function rootLocus(S)
+% Dibuja el lugar de las raices resolviendo la ecuacion caracteristica
+% para muchos valores de K. No se usa rlocus(): se calculan las raices
+% con roots() para cada K y se grafican los puntos resultantes.
+%
+% ESCALA DE LA VISTA (importante):
+% El rango util del grafico lo definen los POLOS Y CEROS de lazo abierto,
+% no la excursion completa de las ramas. Si se dejara que K creciera sin
+% control, las ramas se irian a distancias enormes del origen, la vista se
+% ajustaria a ellas y toda la estructura cercana al origen quedaria
+% aplastada en un punto: todos los sistemas se verian iguales.
+% Por eso aqui se hace al reves: primero se fija la ventana a partir de la
+% geometria de polos y ceros, y luego se elige el K maximo del barrido
+% como aquel en que las ramas apenas salen de esa ventana.
+
+    [num, den, ok, msg] = polinomios(S);
+    if ~ok
+        fprintf('\n  >> %s\n', msg);
+        return;
+    end
+
+    n = numel(den) - 1;     % numero de polos
+    m = numel(num) - 1;     % numero de ceros
+
+    % --- 1. Ventana de interes a partir de polos y ceros --------------
+    pz = [S.p(:); S.z(:)];
+    xs = real(pz);
+    ys = imag(pz);
+    anchoX = max(xs) - min(xs);
+    altoY  = 2*max(abs(ys));
+    L = max([anchoX, altoY, 1]);          % escala caracteristica del sistema
+
+    xLim = [min(xs) - 0.8*L, max(xs) + 0.8*L];
+    yLim = [-(max(abs(ys)) + 0.8*L), (max(abs(ys)) + 0.8*L)];
+    Rvista = max(abs([xLim, yLim]));      % radio aproximado de la ventana
+
+    % --- 2. Cruces del eje imaginario (K critico) ---------------------
+    % Se buscan en un rango amplio de K, independiente de la ventana, para
+    % no perderlos si ocurren lejos.
+    Kw = [0, logspace(-4, 6, 2000)];
+    rhp = false(size(Kw));
+    for i = 1:numel(Kw)
+        rhp(i) = hayRHP(S, Kw(i));
+    end
+    Kcruces = [];
+    trans = find(diff(rhp) ~= 0);
+    for k = 1:numel(trans)
+        Kcruces(end+1) = bisecarCruce(S, Kw(trans(k)), Kw(trans(k)+1)); %#ok<AGROW>
+    end
+
+    % --- 3. K maximo del barrido --------------------------------------
+    % Se duplica K hasta que las ramas se salen de la ventana. Asi el
+    % grafico siempre muestra la parte util, sea cual sea el sistema.
+    Kmax = 1e-3;
+    for it = 1:200
+        c = ecuacionCaracteristica(S, Kmax);
+        r = roots(c);
+        if isempty(r) || max(abs(r)) > 1.6*Rvista
+            break;
+        end
+        Kmax = Kmax * 1.5;
+    end
+    % Si hay un K critico, hay que llegar holgadamente hasta el.
+    if ~isempty(Kcruces)
+        Kmax = max(Kmax, 1.6*max(Kcruces));
+    end
+
+    % --- 4. Barrido de K ----------------------------------------------
+    % Se combinan una malla lineal (cobertura pareja) y una logaritmica
+    % (resolucion cerca de K=0, donde las ramas se mueven mas rapido).
+    Ks = unique([0, linspace(0, Kmax, 1500), Kmax*logspace(-5, 0, 1500)]);
+
+    R = zeros(numel(Ks), n);
+    for i = 1:numel(Ks)
+        c = ecuacionCaracteristica(S, Ks(i));
+        r = roots(c);
+        if numel(r) < n
+            r = [r; nan(n-numel(r),1)]; %#ok<AGROW>
+        end
+        R(i,:) = r(1:n).';
+    end
+
+    % --- 5. Grafico ----------------------------------------------------
+    figure('Name', 'Lugar de las raices', 'NumberTitle', 'off');
+    hold on; grid on;
+
+    h = []; etiquetas = {};
+
+    % Ejes coordenados
+    plot(xLim, [0 0], 'k-', 'LineWidth', 0.8);
+    plot([0 0], yLim, 'k-', 'LineWidth', 0.8);
+
+    % Ramas: plot() sobre una matriz devuelve un handle por columna;
+    % para la leyenda basta con conservar el primero.
+    hRamas = plot(real(R), imag(R), '.', 'MarkerSize', 4, 'Color', [0 0.45 0.85]);
+    h(end+1) = hRamas(1);
+    etiquetas{end+1} = 'Ramas (K creciente)';
+
+    % Asintotas: las (n-m) ramas que se van al infinito lo hacen siguiendo
+    % rectas que parten del centroide con angulos (2k+1)*180/(n-m).
+    if n > m
+        sigma = (sum(real(S.p)) - sum(real(S.z))) / (n - m);
+        Lasin = 3*Rvista;
+        primera = true;
+        for k = 0:(n-m-1)
+            ang = (2*k+1)*pi/(n-m);
+            hh = plot([sigma, sigma + Lasin*cos(ang)], [0, Lasin*sin(ang)], ...
+                      '--', 'Color', [0.6 0.6 0.6], 'LineWidth', 1);
+            if primera
+                h(end+1) = hh; %#ok<AGROW>
+                etiquetas{end+1} = sprintf('Asintotas (\\sigma_a = %.3g)', sigma); %#ok<AGROW>
+                primera = false;
+            end
+        end
+        plot(sigma, 0, 's', 'MarkerEdgeColor', 'k', ...
+             'MarkerFaceColor', [0.6 0.6 0.6], 'MarkerSize', 6);
+    end
+
+    % Polos de lazo abierto: inicio de las ramas (K = 0)
+    h(end+1) = plot(real(S.p), imag(S.p), 'x', 'MarkerSize', 12, ...
+                    'LineWidth', 2.5, 'Color', [0.85 0.10 0.10]);
+    etiquetas{end+1} = sprintf('Polos de lazo abierto (n=%d)', n);
+
+    % Ceros de lazo abierto: destino de las ramas (K -> infinito)
+    if ~isempty(S.z)
+        h(end+1) = plot(real(S.z), imag(S.z), 'o', 'MarkerSize', 10, ...
+                        'LineWidth', 2.5, 'Color', [0.10 0.60 0.10]);
+        etiquetas{end+1} = sprintf('Ceros de lazo abierto (m=%d)', m);
+    end
+
+    % Cruces del eje imaginario: son los K criticos que tambien detecta
+    % la tabla de Routh.
+    if ~isempty(Kcruces)
+        pc = [];
+        for k = 1:numel(Kcruces)
+            rc = roots(ecuacionCaracteristica(S, Kcruces(k)));
+            pc = [pc; rc(abs(real(rc)) < 1e-3)]; %#ok<AGROW>
+        end
+        if ~isempty(pc)
+            h(end+1) = plot(real(pc), imag(pc), 'p', 'MarkerSize', 15, ...
+                            'MarkerFaceColor', [1 0.6 0], 'MarkerEdgeColor', 'k');
+            etiquetas{end+1} = 'Cruce del eje imaginario';
+            % La ventana se amplia si hace falta para que el cruce se vea.
+            yLim = [min(yLim(1), -1.3*max(abs(imag(pc)))), ...
+                    max(yLim(2),  1.3*max(abs(imag(pc))))];
+        end
+    end
+
+    xlim(xLim);
+    ylim(yLim);
+    axis equal;                 % misma escala en ambos ejes: los angulos
+    xlim(xLim); ylim(yLim);     % de salida y las asintotas se ven correctos
+
+    xlabel('Eje real  \sigma');
+    ylabel('Eje imaginario  j\omega');
+    title(sprintf('Lugar de las raices de 1 + K G(s) = 0    (K: 0 a %.4g)', Kmax));
+    legend(h, etiquetas, 'Location', 'best');
+    hold off;
+    drawnow;
+
+    % --- 6. Resumen en consola ------------------------------------------
+    fprintf('\n  Grafico del lugar de las raices generado.\n');
+    fprintf('  Barrido de K: de 0 a %.6g (ajustado a la escala del sistema).\n', Kmax);
+    fprintf('  Las ramas nacen en los polos de lazo abierto (x) para K = 0');
+    if m > 0
+        fprintf('\n  y %d de ellas terminan en los ceros (o) cuando K -> infinito.\n', m);
+    else
+        fprintf('.\n');
+    end
+    if n > m
+        fprintf('  Las %d ramas restantes se van al infinito por las asintotas.\n', n-m);
+    end
+    if ~isempty(Kcruces)
+        fprintf('  Cruce(s) del eje imaginario en K =');
+        fprintf(' %.6g', Kcruces);
+        fprintf('\n');
+    else
+        fprintf('  Las ramas no cruzan el eje imaginario en el rango analizado.\n');
+    end
+end
+
+function r = hayRHP(S, K)
+% Verdadero si hay al menos una raiz en el semiplano DERECHO.
+% Se usa esta condicion (y no "todas en el SPI") para detectar cruces,
+% de modo que un polo en el origen no cuente como cruce espurio.
+    [c, valido] = ecuacionCaracteristica(S, K);
+    if ~valido || numel(c) < 2
+        r = false;
+        return;
+    end
+    r = any(real(roots(c)) > 1e-9);
+end
+
+function Kc = bisecarCruce(S, Ka, Kb_)
+% Refina por biseccion el K donde una rama cruza al semiplano derecho.
+    ea = hayRHP(S, Ka);
+    for it = 1:60
+        Km = 0.5*(Ka + Kb_);
+        if hayRHP(S, Km) == ea
+            Ka = Km;
+        else
+            Kb_ = Km;
+        end
+    end
+    Kc = 0.5*(Ka + Kb_);
+end
+
+% ===================================================================
+% CONCLUSION
+% ===================================================================
+function conclusion(S)
+    fprintf('\n===================================================================\n');
+    fprintf('  CONCLUSION DEL ANALISIS\n');
+    fprintf('===================================================================\n');
+
+    [c, ok] = ecuacionCaracteristica(S, S.K);
+    if ~ok, return; end
+    r = roots(c);
+    nSpd = sum(real(r) > 1e-9);
+
+    fprintf('  Con la ganancia actual K = %g:\n', S.K);
+    if nSpd > 0
+        fprintf('    El sistema es INESTABLE (%d polo(s) en el SPD).\n', nSpd);
+        fprintf('    Ambos metodos lo confirman: la primera columna de la\n');
+        fprintf('    tabla de Routh presenta cambios de signo, y en el root\n');
+        fprintf('    locus hay ramas en el semiplano derecho para ese K.\n');
+    else
+        fprintf('    El sistema es ESTABLE.\n');
+        fprintf('    La primera columna de Routh no cambia de signo y todas\n');
+        fprintf('    las ramas del root locus estan en el semiplano izquierdo.\n');
+    end
+    fprintf('\n  Nota: el K critico que reporta el barrido es el mismo\n');
+    fprintf('  punto donde el root locus cruza el eje imaginario. Esa\n');
+    fprintf('  coincidencia es la verificacion cruzada de todo el analisis.\n');
+    fprintf('===================================================================\n');
+end
+
+% ===================================================================
+% UTILIDADES DE FORMATO
+% ===================================================================
+function s = vec2str(v)
+% Convierte un vector (posiblemente complejo) en texto legible.
+    if isempty(v)
+        s = '[]';
+        return;
+    end
+    partes = cell(1, numel(v));
+    for k = 1:numel(v)
+        x = v(k);
+        if abs(imag(x)) < 1e-12
+            partes{k} = sprintf('%.6g', real(x));
+        elseif imag(x) > 0
+            partes{k} = sprintf('%.6g+%.6gi', real(x), imag(x));
+        else
+            partes{k} = sprintf('%.6g-%.6gi', real(x), -imag(x));
+        end
+    end
+    s = ['[' strjoin_compat(partes, ', ') ']'];
+end
+
+function s = poli2str(c)
+% Escribe un polinomio en forma legible: 1 s^3 + 6 s^2 + 11 s + 6
+    n = numel(c) - 1;
+    s = '';
+    for k = 1:numel(c)
+        a = c(k);
+        e = n - k + 1;
+        if abs(a) < 1e-12
+            continue;
+        end
+        if isempty(s)
+            signo = '';
+            if a < 0, signo = '-'; end
+        else
+            if a < 0, signo = ' - '; else, signo = ' + '; end
+        end
+        mag = abs(a);
+        if e == 0
+            term = sprintf('%.6g', mag);
+        elseif e == 1
+            if abs(mag-1) < 1e-12
+                term = 's';
+            else
+                term = sprintf('%.6g s', mag);
+            end
+        else
+            if abs(mag-1) < 1e-12
+                term = sprintf('s^%d', e);
+            else
+                term = sprintf('%.6g s^%d', mag, e);
+            end
+        end
+        s = [s signo term]; %#ok<AGROW>
+    end
+    if isempty(s), s = '0'; end
+end
+
+function s = strjoin_compat(partes, sep)
+% strjoin no existe en versiones antiguas de Octave: se implementa aqui.
+    s = partes{1};
+    for k = 2:numel(partes)
+        s = [s sep partes{k}]; %#ok<AGROW>
+    end
+end
