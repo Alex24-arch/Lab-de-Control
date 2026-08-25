@@ -17,7 +17,7 @@ y determina la estabilidad del sistema por dos métodos independientes que se co
 
 | Archivo | Contenido |
 |---|---|
-| `proyecto2.m` | Script principal (consola interactiva) |
+| `script.m` | Script principal (consola interactiva) |
 | `readme.md` | Teoría del método y explicación de los casos de prueba |
 
 ## Uso
