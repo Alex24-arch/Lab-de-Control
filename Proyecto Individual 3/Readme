@@ -2,7 +2,7 @@
 
 Diseño interactivo de compensadores sobre el lugar de las raíces, en una consola de MATLAB/Octave con selección por ratón.
 
-**Estudiante:** _(nombre)_ — **Carné:** _(carné)_
+**Estudiante:**  Santos Alexander López Valles— **Carné:** 2023057479
 
 ## Descripción
 
@@ -14,12 +14,6 @@ La teoría completa y la verificación a mano están en [CASOS3.md](CASOS3.md).
 
 MATLAB o GNU Octave. **No requiere Control System Toolbox**: no se usan `tf()`, `rlocus()`, `step()`, `lsim()` ni `sisotool()`. Solo `poly()`, `roots()` y `ginput()`, que son funciones básicas del lenguaje.
 
-## Archivos
-
-| Archivo | Contenido |
-|---|---|
-| `proyecto3.m` | Script principal |
-| `CASOS3.md` | Teoría del diseño y ejemplo resuelto a mano |
 
 ## Uso
 
